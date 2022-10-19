@@ -2,10 +2,15 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"net"
+	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/c3os-io/c3os/sdk/clusterplugin"
+	"github.com/kairos-io/kairos/pkg/config"
+	"github.com/kairos-io/kairos/sdk/clusterplugin"
 	yip "github.com/mudler/yip/pkg/schema"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
@@ -13,10 +18,12 @@ import (
 )
 
 const (
-	configurationPath = "/etc/rancher/rke2/config.d"
+	configurationPath       = "/etc/rancher/rke2/config.d"
+	containerdEnvConfigPath = "/etc/default"
 
 	serverSystemName = "rke2-server"
 	agentSystemName  = "rke2-agent"
+	K8S_NO_PROXY     = ".svc,.svc.cluster,.svc.cluster.local"
 )
 
 type RKE2Config struct {
@@ -24,6 +31,8 @@ type RKE2Config struct {
 	Server string   `yaml:"server"`
 	TLSSan []string `yaml:"tls-san"`
 }
+
+var configScanDir = []string{"/oem", "/usr/local/cloud-config", "/run/initramfs/live"}
 
 func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	rke2Config := RKE2Config{
@@ -50,30 +59,54 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 		cluster.Options = "{}"
 	}
 
+	_config, _ := config.Scan(config.Directories(configScanDir...))
+
+	if _config != nil {
+		for _, e := range _config.Env {
+			pair := strings.SplitN(e, "=", 2)
+			if len(pair) >= 2 {
+				os.Setenv(pair[0], pair[1])
+			}
+		}
+	}
+
 	var providerConfig bytes.Buffer
 	_ = yaml.NewEncoder(&providerConfig).Encode(&rke2Config)
 
 	userOptions, _ := kyaml.YAMLToJSON([]byte(cluster.Options))
 	options, _ := kyaml.YAMLToJSON(providerConfig.Bytes())
 
+	proxyValues := proxyEnv(userOptions)
+
+	files := []yip.File{
+		{
+			Path:        filepath.Join(configurationPath, "90_userdata.yaml"),
+			Permissions: 0400,
+			Content:     string(userOptions),
+		},
+		{
+			Path:        filepath.Join(configurationPath, "99_userdata.yaml"),
+			Permissions: 0400,
+			Content:     string(options),
+		},
+	}
+
+	if len(proxyValues) > 0 {
+		files = append(files, yip.File{
+			Path:        filepath.Join(containerdEnvConfigPath, systemName),
+			Permissions: 0400,
+			Content:     proxyValues,
+		})
+	}
+
 	cfg := yip.YipConfig{
-		Name: "RKE2 C3OS Cluster Provider",
+		Name: "RKE2 Kairos Cluster Provider",
 		Stages: map[string][]yip.Stage{
 			"boot.before": {
 				{
-					Name: "Install RKE2 Configuration Files",
-					Files: []yip.File{
-						{
-							Path:        filepath.Join(configurationPath, "90_userdata.yaml"),
-							Permissions: 0400,
-							Content:     string(userOptions),
-						},
-						{
-							Path:        filepath.Join(configurationPath, "99_userdata.yaml"),
-							Permissions: 0400,
-							Content:     string(options),
-						},
-					},
+					Name:  " Install RKE2 Configuration Files",
+					Files: files,
+
 					Commands: []string{
 						fmt.Sprintf("jq -s 'def flatten: reduce .[] as $i([]; if $i | type == \"array\" then . + ($i | flatten) else . + [$i] end); [.[] | to_entries] | flatten | reduce .[] as $dot ({}; .[$dot.key] += $dot.value)' %s/*.yaml > /etc/rancher/rke2/config.yaml", configurationPath),
 					},
@@ -94,6 +127,72 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	}
 
 	return cfg
+}
+
+func proxyEnv(userOptions []byte) string {
+	var proxy []string
+
+	httpProxy := os.Getenv("HTTP_PROXY")
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	noProxy := getNoProxy(userOptions)
+
+	if len(httpProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTP_PROXY=%s", httpProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTP_PROXY=%s", httpProxy))
+	}
+
+	if len(httpsProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTPS_PROXY=%s", httpsProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTPS_PROXY=%s", httpsProxy))
+	}
+
+	if len(noProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("NO_PROXY=%s", noProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_NO_PROXY=%s", noProxy))
+	}
+
+	return strings.Join(proxy, "\n")
+}
+
+func getNoProxy(userOptions []byte) string {
+
+	noProxy := os.Getenv("NO_PROXY")
+
+	if len(noProxy) > 0 {
+		data := make(map[string]interface{})
+		err := json.Unmarshal(userOptions, &data)
+		if err != nil {
+			fmt.Println("error while unmarshalling user options", err)
+		}
+
+		if data != nil {
+			clusterCIDR := data["cluster-cidr"].(string)
+			serviceCIDR := data["service-cidr"].(string)
+
+			if len(clusterCIDR) > 0 {
+				noProxy = noProxy + "," + clusterCIDR
+			}
+			if len(serviceCIDR) > 0 {
+				noProxy = noProxy + "," + serviceCIDR
+			}
+			noProxy = noProxy + "," + getNodeCIDR() + "," + K8S_NO_PROXY
+		}
+	}
+	return noProxy
+}
+
+func getNodeCIDR() string {
+	addrs, _ := net.InterfaceAddrs()
+	var result string
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				result = addr.String()
+				break
+			}
+		}
+	}
+	return result
 }
 
 func main() {

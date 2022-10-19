@@ -1,7 +1,8 @@
 VERSION 0.6
 FROM alpine
 
-ARG BASE_IMAGE=santhoshs/core-opensuse:latest_env_fix
+ARG BASE_IMAGE=quay.io/kairos/core-opensuse:v1.1.4
+
 ARG IMAGE_REPOSITORY=quay.io/kairos
 
 ARG LUET_VERSION=0.33.0
@@ -46,6 +47,7 @@ VERSION:
     RUN echo $(git describe --exact-match --tags || echo "v0.0.0-$(git log --oneline -n 1 | cut -d" " -f1)") > VERSION
 
     SAVE ARTIFACT VERSION VERSION
+
 
 build-provider:
     FROM +go-deps

@@ -3,17 +3,20 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"path/filepath"
-
-	"github.com/c3os-io/c3os/sdk/clusterplugin"
+	"github.com/kairos-io/kairos/pkg/config"
+	"github.com/kairos-io/kairos/sdk/clusterplugin"
 	yip "github.com/mudler/yip/pkg/schema"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
+	"os"
+	"path/filepath"
 	kyaml "sigs.k8s.io/yaml"
+	"strings"
 )
 
 const (
-	configurationPath = "/etc/rancher/rke2/config.d"
+	configurationPath       = "/etc/rancher/rke2/config.d"
+	containerdEnvConfigPath = "/etc/default"
 
 	serverSystemName = "rke2-server"
 	agentSystemName  = "rke2-agent"
@@ -25,6 +28,8 @@ type RKE2Config struct {
 	Server      string   `yaml:"server"`
 	TLSSan      []string `yaml:"tls-san"`
 }
+
+var configScanDir = []string{"/oem", "/usr/local/cloud-config", "/run/initramfs/live"}
 
 func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	rke2Config := RKE2Config{
@@ -52,6 +57,17 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 		cluster.Options = "{}"
 	}
 
+	_config, _ := config.Scan(config.Directories(configScanDir...))
+
+	if _config != nil {
+		for _, e := range _config.Env {
+			pair := strings.SplitN(e, "=", 2)
+			if len(pair) >= 2 {
+				os.Setenv(pair[0], pair[1])
+			}
+		}
+	}
+
 	var providerConfig bytes.Buffer
 	_ = yaml.NewEncoder(&providerConfig).Encode(&rke2Config)
 
@@ -63,7 +79,7 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 		Stages: map[string][]yip.Stage{
 			"boot.before": {
 				{
-					Name: "Install RKE2 Configuration Files",
+					Name: " Install RKE2 Configuration Files",
 					Files: []yip.File{
 						{
 							Path:        filepath.Join(configurationPath, "90_userdata.yaml"),
@@ -75,7 +91,13 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 							Permissions: 0400,
 							Content:     string(options),
 						},
+						{
+							Path:        filepath.Join(containerdEnvConfigPath, systemName),
+							Permissions: 0400,
+							Content:     containerdProxyEnv(),
+						},
 					},
+
 					Commands: []string{
 						fmt.Sprintf("jq -s 'def flatten: reduce .[] as $i([]; if $i | type == \"array\" then . + ($i | flatten) else . + [$i] end); [.[] | to_entries] | flatten | reduce .[] as $dot ({}; .[$dot.key] += $dot.value)' %s/*.yaml > /etc/rancher/rke2/config.yaml", configurationPath),
 					},
@@ -96,6 +118,30 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	}
 
 	return cfg
+}
+
+func containerdProxyEnv() string {
+	var proxy []string
+	httpProxy := os.Getenv("HTTP_PROXY")
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	noProxy := os.Getenv("NO_PROXY")
+
+	if len(httpProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTP_PROXY=%s", httpProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTP_PROXY=%s", httpProxy))
+	}
+
+	if len(httpsProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTPS_PROXY=%s", httpsProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTPS_PROXY=%s", httpsProxy))
+	}
+
+	if len(noProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("NO_PROXY=%s", noProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_NO_PROXY=%s", httpProxy))
+	}
+
+	return strings.Join(proxy, "\n")
 }
 
 func main() {

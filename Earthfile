@@ -1,7 +1,7 @@
 VERSION 0.6
 FROM alpine
 
-ARG BASE_IMAGE=quay.io/kairos/core-opensuse:latest
+ARG BASE_IMAGE=quay.io/kairos/core-opensuse:v1.1.4
 ARG IMAGE_REPOSITORY=quay.io/kairos
 
 ARG LUET_VERSION=0.33.0
@@ -47,6 +47,10 @@ VERSION:
 
     SAVE ARTIFACT VERSION VERSION
 
+luet:
+    FROM quay.io/luet/base:$LUET_VERSION
+    SAVE ARTIFACT /usr/bin/luet /luet
+
 build-provider:
     FROM +go-deps
     DO +BUILD_GOLANG --BIN=agent-provider-rke2 --SRC=main.go
@@ -63,7 +67,7 @@ docker:
     ARG VERSION=$(cat VERSION)
 
     FROM $BASE_IMAGE
-
+    COPY +luet/luet /usr/bin/luet
     IF [ "$RKE2_VERSION" = "latest" ]
     ELSE
         ENV INSTALL_RKE2_VERSION=${RKE2_VERSION}

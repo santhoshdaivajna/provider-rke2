@@ -66,7 +66,11 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 		Stages: map[string][]yip.Stage{
 			"boot.after": {
 				{
-					Name: "",
+					Name:     "Source env",
+					Commands: []string{"set -a; source /etc/environment; set +a"},
+				},
+				{
+					Name: "Set Proxy Env in rke2 config",
 					Files: []yip.File{
 						{
 							Path:        filepath.Join(containerdEnvConfigPath, systemName),

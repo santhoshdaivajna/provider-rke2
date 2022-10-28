@@ -84,12 +84,11 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 						fmt.Sprintf("jq -s 'def flatten: reduce .[] as $i([]; if $i | type == \"array\" then . + ($i | flatten) else . + [$i] end); [.[] | to_entries] | flatten | reduce .[] as $dot ({}; .[$dot.key] += $dot.value)' %s/*.yaml > /etc/rancher/rke2/config.yaml", configurationPath),
 					},
 				},
-			},
-			"boot.after": {
-
 				{
-					Name:     "Source env",
-					Commands: []string{"set -a; source /etc/environment; set +a"},
+					Name: "Source env",
+					Commands: []string{
+						"for env in $( grep -v '^#' /etc/environment | grep -v '^$' ); do export $(echo $env | sed -e 's/\"//g'); done",
+					},
 				},
 				{
 					Name: "Set Proxy Env in rke2 config",

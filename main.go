@@ -64,7 +64,26 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	cfg := yip.YipConfig{
 		Name: "RKE2 C3OS Cluster Provider",
 		Stages: map[string][]yip.Stage{
-			"boot.after": {
+			"boot.before": {
+				{
+					Name: " Install RKE2 Configuration Files",
+					Files: []yip.File{
+						{
+							Path:        filepath.Join(configurationPath, "90_userdata.yaml"),
+							Permissions: 0400,
+							Content:     string(userOptions),
+						},
+						{
+							Path:        filepath.Join(configurationPath, "99_userdata.yaml"),
+							Permissions: 0400,
+							Content:     string(options),
+						},
+					},
+
+					Commands: []string{
+						fmt.Sprintf("jq -s 'def flatten: reduce .[] as $i([]; if $i | type == \"array\" then . + ($i | flatten) else . + [$i] end); [.[] | to_entries] | flatten | reduce .[] as $dot ({}; .[$dot.key] += $dot.value)' %s/*.yaml > /etc/rancher/rke2/config.yaml", configurationPath),
+					},
+				},
 				{
 					Name:     "Source env",
 					Commands: []string{"set -a; source /etc/environment; set +a"},
@@ -88,26 +107,6 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 						Start: []string{
 							systemName,
 						},
-					},
-				},
-			},
-			"boot.before": {
-				{
-					Name: " Install RKE2 Configuration Files",
-					Files: []yip.File{
-						{
-							Path:        filepath.Join(configurationPath, "90_userdata.yaml"),
-							Permissions: 0400,
-							Content:     string(userOptions),
-						},
-						{
-							Path:        filepath.Join(configurationPath, "99_userdata.yaml"),
-							Permissions: 0400,
-							Content:     string(options),
-						},
-					},
-					Commands: []string{
-						fmt.Sprintf("jq -s 'def flatten: reduce .[] as $i([]; if $i | type == \"array\" then . + ($i | flatten) else . + [$i] end); [.[] | to_entries] | flatten | reduce .[] as $dot ({}; .[$dot.key] += $dot.value)' %s/*.yaml > /etc/rancher/rke2/config.yaml", configurationPath),
 					},
 				},
 			},

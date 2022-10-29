@@ -1,6 +1,6 @@
 VERSION 0.6
 FROM alpine
-
+git 
 ARG BASE_IMAGE=quay.io/kairos/core-opensuse:latest
 ARG IMAGE_REPOSITORY=quay.io/kairos
 

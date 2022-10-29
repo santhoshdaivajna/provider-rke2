@@ -122,19 +122,23 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 
 func containerdProxyEnv() string {
 	var proxy []string
-	if len(os.Getenv("HTTP_PROXY")) > 0 {
-		proxy = append(proxy, "HTTP_PROXY=${HTTP_PROXY}")
-		proxy = append(proxy, "CONTAINERD_HTTP_PROXY=${HTTP_PROXY}")
+	httpProxy := os.Getenv("HTTP_PROXY")
+	httpsProxy := os.Getenv("HTTPS_PROXY")
+	noProxy := os.Getenv("NO_PROXY")
+
+	if len(httpProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTP_PROXY=%s", httpProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTP_PROXY=%s", httpProxy))
 	}
 
-	if len(os.Getenv("HTTPS_PROXY")) > 0 {
-		proxy = append(proxy, "HTTPS_PROXY=${HTTPS_PROXY}")
-		proxy = append(proxy, "CONTAINERD_HTTPS_PROXY=${HTTPS_PROXY}")
+	if len(httpsProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTPS_PROXY=%s", httpsProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTPS_PROXY=%s", httpsProxy))
 	}
 
-	if len(os.Getenv("NO_PROXY")) > 0 {
-		proxy = append(proxy, "NO_PROXY=${NO_PROXY}")
-		proxy = append(proxy, "CONTAINERD_NO_PROXY=${NO_PROXY}")
+	if len(noProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("NO_PROXY=%s", noProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_NO_PROXY=%s", httpProxy))
 	}
 
 	return strings.Join(proxy, "\n")

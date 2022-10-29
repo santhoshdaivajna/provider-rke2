@@ -3,9 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/c3os-io/c3os/sdk/clusterplugin"
 	yip "github.com/mudler/yip/pkg/schema"
@@ -82,22 +80,7 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 
 					Commands: []string{
 						fmt.Sprintf("jq -s 'def flatten: reduce .[] as $i([]; if $i | type == \"array\" then . + ($i | flatten) else . + [$i] end); [.[] | to_entries] | flatten | reduce .[] as $dot ({}; .[$dot.key] += $dot.value)' %s/*.yaml > /etc/rancher/rke2/config.yaml", configurationPath),
-					},
-				},
-				{
-					Name: "Source env",
-					Commands: []string{
-						"for env in $( grep -v '^#' /etc/environment | grep -v '^$' ); do export $(echo $env | sed -e 's/\"//g'); done",
-					},
-				},
-				{
-					Name: "Set Proxy Env in rke2 config",
-					Files: []yip.File{
-						{
-							Path:        filepath.Join(containerdEnvConfigPath, systemName),
-							Permissions: 0600,
-							Content:     containerdProxyEnv(),
-						},
+						fmt.Sprintf("str=\"\"';for env in $( grep -v '^#' /etc/environment | grep -v '^$' ); do str+=$env done; echo $str >> %s", systemName),
 					},
 				},
 				{
@@ -118,6 +101,7 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	return cfg
 }
 
+/*
 func containerdProxyEnv() string {
 	var proxy []string
 	if len(os.Getenv("HTTP_PROXY")) > 0 {
@@ -136,7 +120,7 @@ func containerdProxyEnv() string {
 	}
 
 	return strings.Join(proxy, "\n")
-}
+}*/
 
 func main() {
 	plugin := clusterplugin.ClusterPlugin{

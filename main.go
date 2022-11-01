@@ -132,7 +132,7 @@ func containerdProxyEnv(userOptions []byte) string {
 	var data map[string]interface{}
 	err := json.Unmarshal(userOptions, &data)
 	if err != nil {
-		fmt.Errorf("error while unmarshalling user options", err)
+		fmt.Println("error while unmarshalling user options", err)
 	}
 
 	if data != nil {

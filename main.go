@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/kairos-io/kairos/pkg/config"
 	"github.com/kairos-io/kairos/sdk/clusterplugin"
@@ -20,6 +21,7 @@ const (
 
 	serverSystemName = "rke2-server"
 	agentSystemName  = "rke2-agent"
+	K8S_NO_PROXY     = ".svc,.svc.cluster,.svc.cluster.local"
 )
 
 type RKE2Config struct {
@@ -94,7 +96,7 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 						{
 							Path:        filepath.Join(containerdEnvConfigPath, systemName),
 							Permissions: 0400,
-							Content:     containerdProxyEnv(),
+							Content:     containerdProxyEnv(userOptions),
 						},
 					},
 
@@ -120,11 +122,32 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	return cfg
 }
 
-func containerdProxyEnv() string {
+func containerdProxyEnv(userOptions []byte) string {
 	var proxy []string
+
 	httpProxy := os.Getenv("HTTP_PROXY")
 	httpsProxy := os.Getenv("HTTPS_PROXY")
 	noProxy := os.Getenv("NO_PROXY")
+
+	var data map[string]interface{}
+	err := json.Unmarshal(userOptions, &data)
+	if err != nil {
+		fmt.Errorf("error while unmarshalling user options", err)
+	}
+
+	if data != nil {
+		cluster_cidr := data["cluster-cidr"].(string)
+		service_cidr := data["service-cidr"].(string)
+
+		if len(cluster_cidr) > 0 {
+			noProxy = noProxy + "," + cluster_cidr
+		}
+		if len(service_cidr) > 0 {
+			noProxy = noProxy + "," + service_cidr
+		}
+
+	}
+	noProxy = noProxy + "," + K8S_NO_PROXY
 
 	if len(httpProxy) > 0 {
 		proxy = append(proxy, fmt.Sprintf("HTTP_PROXY=%s", httpProxy))

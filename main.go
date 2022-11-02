@@ -68,7 +68,7 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 				os.Setenv(pair[0], pair[1])
 			}
 		}
-	}
+	}``
 
 	var providerConfig bytes.Buffer
 	_ = yaml.NewEncoder(&providerConfig).Encode(&rke2Config)
@@ -96,7 +96,7 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 						{
 							Path:        filepath.Join(containerdEnvConfigPath, systemName),
 							Permissions: 0400,
-							Content:     containerdProxyEnv(userOptions),
+							Content:     proxyEnv(userOptions),
 						},
 					},
 
@@ -122,11 +122,33 @@ func clusterProvider(cluster clusterplugin.Cluster) yip.YipConfig {
 	return cfg
 }
 
-func containerdProxyEnv(userOptions []byte) string {
+func proxyEnv(userOptions []byte) string {
 	var proxy []string
 
 	httpProxy := os.Getenv("HTTP_PROXY")
 	httpsProxy := os.Getenv("HTTPS_PROXY")
+	noProxy := getNoProxy(userOptions)
+
+	if len(httpProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTP_PROXY=%s", httpProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTP_PROXY=%s", httpProxy))
+	}
+
+	if len(httpsProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("HTTPS_PROXY=%s", httpsProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTPS_PROXY=%s", httpsProxy))
+	}
+
+	if len(noProxy) > 0 {
+		proxy = append(proxy, fmt.Sprintf("NO_PROXY=%s", noProxy))
+		proxy = append(proxy, fmt.Sprintf("CONTAINERD_NO_PROXY=%s", noProxy))
+	}
+
+	return strings.Join(proxy, "\n")
+}
+
+func getNoProxy(userOptions []byte) string {
+
 	noProxy := os.Getenv("NO_PROXY")
 
 	var data map[string]interface{}
@@ -145,26 +167,9 @@ func containerdProxyEnv(userOptions []byte) string {
 		if len(service_cidr) > 0 {
 			noProxy = noProxy + "," + service_cidr
 		}
-
 	}
 	noProxy = noProxy + "," + K8S_NO_PROXY
-
-	if len(httpProxy) > 0 {
-		proxy = append(proxy, fmt.Sprintf("HTTP_PROXY=%s", httpProxy))
-		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTP_PROXY=%s", httpProxy))
-	}
-
-	if len(httpsProxy) > 0 {
-		proxy = append(proxy, fmt.Sprintf("HTTPS_PROXY=%s", httpsProxy))
-		proxy = append(proxy, fmt.Sprintf("CONTAINERD_HTTPS_PROXY=%s", httpsProxy))
-	}
-
-	if len(noProxy) > 0 {
-		proxy = append(proxy, fmt.Sprintf("NO_PROXY=%s", noProxy))
-		proxy = append(proxy, fmt.Sprintf("CONTAINERD_NO_PROXY=%s", httpProxy))
-	}
-
-	return strings.Join(proxy, "\n")
+	return noProxy
 }
 
 func main() {
